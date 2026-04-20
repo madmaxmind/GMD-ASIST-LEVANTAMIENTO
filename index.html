@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GMD Field Survey — Captura Real</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- OpenCV.js para detección de aristas en el navegador -->
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
+
+<style>
+:root {
+  --teal:    #00C3C7;
+  --teal2:   rgba(0,195,199,.12);
+  --dark:    #060b0b;
+  --panel:   #0c1313;
+  --border:  #182828;
+  --text:    #b8d8d8;
+  --muted:   #3d5e5e;
+  --warn:    #ff8c42;
+  --success: #39d98a;
+  --red:     #ff4d6d;
+  --mono: 'Share Tech Mono', monospace;
+  --sans: 'Barlow Condensed', sans-serif;
+  --disp: 'Rajdhani', sans-serif;
+}
+
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;}
+
+body {
+  background:var(--dark);
+  color:var(--text);
+  font-family:var(--sans);
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+  overflow:hidden;
+}
+
+/* grid bg */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(0,195,199,.03) 39px,rgba(0,195,199,.03) 40px),
+    repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(0,195,199,.03) 39px,rgba(0,195,199,.03) 40px);
+}
+
+/* ── HEADER ── */
+.hdr {
+  flex:none;
+  height:50px;
+  background:rgba(6,11,11,.97);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;
+  position:relative;z-index:100;
+}
+.hdr-logo {
+  font-family:var(--disp);font-weight:700;font-size:16px;
+  letter-spacing:.1em;color:#fff;
+}
+.hdr-logo span{color:var(--teal);}
+.hdr-status {
+  font-family:var(--mono);font-size:9px;color:var(--muted);
+  display:flex;align-items:center;gap:8px;
+}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── STEP TABS ── */
+.steps {
+  flex:none;
+  display:flex;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  overflow-x:auto;
+  position:relative;z-index:99;
+}
+.step-btn {
+  flex:1;min-width:80px;
+  padding:10px 8px;
+  background:none;border:none;
+  font-family:var(--mono);font-size:9px;
+  color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;
+  transition:.2s;letter-spacing:.06em;
+  text-align:center;line-height:1.4;
+}
+.step-btn.active{color:var(--teal);border-bottom-color:var(--teal);background:rgba(0,195,199,.05);}
+.step-btn.done{color:var(--success);}
+.step-btn.done::before{content:'✓ ';}
+
+/* ── MAIN AREA ── */
+.main{
+  flex:1;
+  overflow:hidden;
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;
+}
+
+/* ── SCREENS ── */
+.screen{display:none;flex:1;flex-direction:column;overflow:hidden;}
+.screen.active{display:flex;}
+
+/* ══ SCREEN 1: CÁMARA ══ */
+.cam-wrap{
+  flex:1;position:relative;overflow:hidden;
+  background:#000;
+}
+#videoEl{
+  width:100%;height:100%;
+  object-fit:cover;
+  display:block;
+}
+#canvasOverlay{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  pointer-events:none;
+}
+/* viewfinder corners */
+.vf-corner{position:absolute;width:22px;height:22px;border-color:var(--teal);border-style:solid;}
+.vf-corner.tl{top:16px;left:16px;border-width:2px 0 0 2px;}
+.vf-corner.tr{top:16px;right:16px;border-width:2px 2px 0 0;}
+.vf-corner.bl{bottom:16px;left:16px;border-width:0 0 2px 2px;}
+.vf-corner.br{bottom:16px;right:16px;border-width:0 2px 2px 0;}
+
+.scan-line{
+  position:absolute;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--teal),transparent);
+  animation:scan 2.5s linear infinite;opacity:.5;
+}
+@keyframes scan{0%{top:0}100%{top:100%}}
+
+.cam-hud-top{
+  position:absolute;top:0;left:0;right:0;
+  padding:10px 16px;
+  background:linear-gradient(to bottom,rgba(6,11,11,.8),transparent);
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:9px;color:var(--teal);
+}
+.cam-hud-bot{
+  position:absolute;bottom:0;left:0;right:0;
+  padding:10px 16px;
+  background:linear-gradient(to top,rgba(6,11,11,.85),transparent);
+  font-family:var(--mono);font-size:9px;color:var(--teal);
+  text-align:center;
+}
+
+.cam-controls{
+  flex:none;
+  background:var(--panel);
+  border-top:1px solid var(--border);
+  padding:12px 16px;
+  display:flex;align-items:center;justify-content:space-around;gap:12px;
+}
+.ctrl-btn{
+  width:44px;height:44px;border-radius:50%;
+  border:1px solid var(--border);
+  background:rgba(0,195,199,.08);
+  color:var(--teal);font-size:18px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:.2s;
+  font-family:var(--mono);
+}
+.ctrl-btn:hover,.ctrl-btn:active{background:rgba(0,195,199,.22);}
+.ctrl-btn.capture{
+  width:60px;height:60px;
+  border:2px solid var(--teal);
+  background:rgba(0,195,199,.15);
+  box-shadow:0 0 20px rgba(0,195,199,.3);
+  font-size:22px;
+}
+.ctrl-btn.capture:active{background:rgba(0,195,199,.4);transform:scale(.95);}
+.ctrl-btn.danger{border-color:var(--red);color:var(--red);background:rgba(255,77,109,.08);}
+
+/* no-cam message */
+.no-cam{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;padding:32px;text-align:center;
+}
+.no-cam-icon{font-size:48px;opacity:.4;}
+.no-cam h3{font-family:var(--disp);font-size:20px;color:#fff;font-weight:700;}
+.no-cam p{font-size:13px;color:var(--muted);line-height:1.65;max-width:320px;}
+.no-cam .tip{
+  font-family:var(--mono);font-size:10px;color:var(--teal);
+  border:1px solid var(--border);padding:8px 14px;
+  background:rgba(0,195,199,.05);
+}
+
+/* ══ SCREEN 2: REVISIÓN DE FOTO ══ */
+.foto-wrap{
+  flex:1;position:relative;overflow:hidden;
+  background:#000;display:flex;align-items:center;justify-content:center;
+  max-height:calc(100vh - 50px - 42px - 100px);
+}
+#canvasFoto{
+  max-width:100%;max-height:100%;
+  display:block;cursor:crosshair;object-fit:contain;
+}
+#canvasAristas{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  pointer-events:none;
+}
+
+.foto-bar{
+  flex:none;background:var(--panel);border-top:1px solid var(--border);
+  padding:10px 14px;min-height:90px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.foto-bar-info{
+  flex:1;font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.7;
+  min-width:0;
+}
+.fbar-btns{display:flex;gap:8px;flex-wrap:wrap;width:100%;}
+
+/* ══ SCREEN 3: REFERENCIA DE ESCALA ══ */
+.ref-screen{
+  flex:1;overflow-y:auto;padding:12px 14px;
+  display:flex;flex-direction:column;gap:16px;
+}
+.ref-photo-wrap{
+  position:relative;
+  background:#000;
+  border:1px solid var(--border);
+  border-radius:2px;overflow:hidden;
+  flex:none;
+  max-height:35vh;
+  display:flex;align-items:center;justify-content:center;
+}
+#canvasRef{
+  max-width:100%;max-height:35vh;display:block;cursor:crosshair;
+  touch-action:none;object-fit:contain;
+}
+.ref-points-svg{
+  position:absolute;inset:0;width:100%;height:100%;
+  pointer-events:none;
+}
+
+.ref-panel{
+  background:var(--panel);border:1px solid var(--border);
+  padding:16px;
+}
+.ref-title{font-family:var(--disp);font-weight:700;font-size:16px;color:#fff;margin-bottom:4px;}
+.ref-sub{font-family:var(--mono);font-size:9px;color:var(--muted);margin-bottom:14px;}
+
+.input-row{display:flex;gap:8px;align-items:center;margin-bottom:12px;}
+.gmd-input{
+  flex:1;background:var(--dark);border:1px solid var(--border);
+  color:var(--teal);font-family:var(--mono);font-size:13px;
+  padding:10px 12px;outline:none;
+  transition:.2s;
+}
+.gmd-input:focus{border-color:var(--teal);}
+.gmd-input::placeholder{color:var(--muted);}
+.unit-lbl{font-family:var(--mono);font-size:11px;color:var(--muted);}
+
+.ref-result{
+  background:var(--dark);border:1px solid var(--border);
+  padding:12px;font-family:var(--mono);font-size:10px;
+  color:var(--teal);line-height:2;
+}
+
+/* ══ SCREEN 4: PUNTOS DE FIJACIÓN ══ */
+.pts-screen{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
+.pts-photo-wrap{
+  position:relative;flex:none;
+  background:#000;overflow:hidden;
+  max-height:40vh;
+  display:flex;align-items:center;justify-content:center;
+}
+#canvasPts{
+  max-width:100%;max-height:40vh;display:block;
+  cursor:crosshair;touch-action:none;object-fit:contain;
+}
+.pts-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+
+.pts-bar{
+  flex:none;background:var(--panel);border-top:1px solid var(--border);
+  padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+}
+.pts-count{font-family:var(--mono);font-size:10px;color:var(--teal);}
+
+.pts-list{
+  flex:1;overflow-y:auto;
+  background:var(--dark);
+}
+.pt-row{
+  display:grid;grid-template-columns:32px 1fr auto;
+  gap:8px;align-items:center;
+  padding:10px 14px;
+  border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;
+}
+.pt-row:hover{background:rgba(0,195,199,.03);}
+.pt-letter{
+  width:28px;height:28px;border-radius:50%;
+  background:rgba(255,140,66,.15);border:1px solid var(--warn);
+  color:var(--warn);font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+}
+.pt-info{color:var(--text);line-height:1.6;}
+.pt-info small{color:var(--muted);font-size:9px;}
+.pt-del{
+  background:none;border:none;color:var(--muted);
+  cursor:pointer;font-size:14px;padding:4px;
+}
+.pt-del:hover{color:var(--red);}
+
+.empty-pts{
+  padding:32px;text-align:center;
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+}
+
+/* ══ SCREEN 5: REPORTE ══ */
+.report-screen{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;}
+.rpt-header{
+  background:var(--panel);border:1px solid var(--teal);
+  padding:16px;
+}
+.rpt-title{font-family:var(--disp);font-weight:700;font-size:18px;color:#fff;letter-spacing:.06em;}
+.rpt-sub{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px;}
+
+.rpt-section{background:var(--panel);border:1px solid var(--border);padding:14px;}
+.rpt-sec-title{font-family:var(--mono);font-size:9px;color:var(--teal);letter-spacing:.15em;margin-bottom:10px;}
+
+.rpt-photo-preview{
+  width:100%;border:1px solid var(--border);
+  display:block;margin-bottom:10px;
+}
+
+.rpt-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px;}
+.rpt-table th{background:#0a1515;color:var(--teal);padding:8px 10px;text-align:left;letter-spacing:.08em;font-weight:400;border-bottom:1px solid var(--border);}
+.rpt-table td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text);}
+.rpt-table tr:last-child td{border-bottom:none;}
+
+.rpt-dims-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.rpt-dim-card{background:var(--dark);border:1px solid var(--border);padding:12px;text-align:center;}
+.rpt-dim-val{font-family:var(--disp);font-size:22px;color:var(--teal);font-weight:700;}
+.rpt-dim-lbl{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;}
+
+.rpt-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{
+  padding:10px 18px;font-family:var(--sans);font-weight:700;
+  font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+  border:none;cursor:pointer;transition:.2s;flex:1;min-width:120px;
+  text-align:center;
+}
+.btn-p{background:var(--teal);color:var(--dark);}
+.btn-p:hover{background:#00e0e5;box-shadow:0 0 18px rgba(0,195,199,.4);}
+.btn-g{background:transparent;color:var(--teal);border:1px solid var(--teal);}
+.btn-g:hover{background:rgba(0,195,199,.1);}
+
+/* ── TOAST NOTIFICATIONS ── */
+.toast{
+  position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--panel);border:1px solid var(--teal);
+  font-family:var(--mono);font-size:11px;color:var(--teal);
+  padding:10px 20px;z-index:9999;
+  opacity:0;transition:.3s;pointer-events:none;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.warn{border-color:var(--warn);color:var(--warn);}
+.toast.success{border-color:var(--success);color:var(--success);}
+
+/* ── CV LOADING ── */
+.cv-loading{
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--panel);border-top:1px solid var(--border);
+  padding:8px 16px;
+  font-family:var(--mono);font-size:9px;color:var(--muted);
+  z-index:500;display:flex;align-items:center;gap:8px;
+}
+.cv-dot{width:6px;height:6px;border-radius:50%;background:var(--warn);animation:pulse 1s infinite;}
+
+/* ── PROGRESS BAR ── */
+.prog{margin:6px 0;}
+.prog-lbl{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);margin-bottom:4px;}
+.prog-bar{height:2px;background:var(--border);}
+.prog-fill{height:100%;background:var(--teal);box-shadow:0 0 6px rgba(0,195,199,.5);transition:.4s;}
+
+/* scrollbar */
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:var(--dark);}
+::-webkit-scrollbar-thumb{background:var(--muted);}
+
+/* flash animation */
+@keyframes flash{0%{opacity:1}50%{opacity:0}100%{opacity:1}}
+.flash-anim{animation:flash .15s ease 2;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo"><span>[</span> GMD FIELD SURVEY <span>]</span></div>
+  <div class="hdr-status">
+    <div class="dot"></div>
+    <span id="cvStatus">CARGANDO CV...</span>
+  </div>
+</div>
+
+<!-- STEP TABS -->
+<div class="steps">
+  <button class="step-btn active" id="sBtn0" onclick="goStep(0)">01<br>CÁMARA</button>
+  <button class="step-btn" id="sBtn1" onclick="goStep(1)">02<br>FOTO</button>
+  <button class="step-btn" id="sBtn2" onclick="goStep(2)">03<br>ESCALA</button>
+  <button class="step-btn" id="sBtn3" onclick="goStep(3)">04<br>PUNTOS</button>
+  <button class="step-btn" id="sBtn4" onclick="goStep(4)">05<br>REPORTE</button>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- ══ SCREEN 0: CÁMARA ══ -->
+  <div class="screen active" id="screen0">
+    <div class="cam-wrap" id="camWrap">
+      <!-- Cámara real -->
+      <video id="videoEl" autoplay playsinline muted></video>
+      <canvas id="canvasOverlay"></canvas>
+      <div class="vf-corner tl"></div>
+      <div class="vf-corner tr"></div>
+      <div class="vf-corner bl"></div>
+      <div class="vf-corner br"></div>
+      <div class="scan-line"></div>
+      <div class="cam-hud-top">
+        <span id="camRes">—</span>
+        <span id="camMode">CÁMARA TRASERA</span>
+      </div>
+      <div class="cam-hud-bot" id="camHint">Encuadra la estructura completa · Mantén el celular estable</div>
+
+      <!-- Mensaje si no hay cámara -->
+      <div class="no-cam" id="noCamMsg" style="display:none;">
+        <div class="no-cam-icon">📷</div>
+        <h3>Cámara no disponible</h3>
+        <p>Este navegador no permite acceso a la cámara, o no se otorgó el permiso.</p>
+        <div class="tip">En Chrome Android: menú ⋮ → Configuración → Permisos del sitio → Cámara → Permitir</div>
+        <p style="margin-top:12px;font-size:12px;color:var(--muted);">Puedes subir una foto desde galería:</p>
+        <label style="cursor:pointer;">
+          <input type="file" accept="image/*" id="fileInput" style="display:none;" onchange="cargarDesdeArchivo(this)">
+          <div class="btn btn-g" style="display:inline-block;margin-top:4px;">📁 ABRIR GALERÍA</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="cam-controls">
+      <div class="ctrl-btn danger" title="Nueva sesión" onclick="reiniciar()">↺</div>
+      <div class="ctrl-btn capture" id="captureBtn" title="Capturar foto" onclick="capturarFoto()">⊙</div>
+      <label class="ctrl-btn" title="Galería" style="cursor:pointer;">
+        <input type="file" accept="image/*,video/*" style="display:none;" onchange="cargarDesdeArchivo(this)">
+        🗂
+      </label>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 1: REVISIÓN + ARISTAS ══ -->
+  <div class="screen" id="screen1">
+    <div class="foto-wrap">
+      <canvas id="canvasFoto"></canvas>
+      <canvas id="canvasAristas"></canvas>
+    </div>
+    <div class="foto-bar">
+      <div class="foto-bar-info" id="fotoInfo">Foto capturada. Procesando aristas...</div>
+      <div class="fbar-btns">
+        <button class="btn btn-g" style="font-size:11px;padding:8px 14px;" onclick="goStep(0)">← RECAPTURAR</button>
+        <button class="btn btn-p" style="font-size:11px;padding:8px 14px;" onclick="goStep(2)">ESCALA →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 2: REFERENCIA DE ESCALA ══ -->
+  <div class="screen" id="screen2">
+    <div class="ref-screen">
+
+      <div class="ref-photo-wrap">
+        <canvas id="canvasRef"></canvas>
+        <svg class="ref-points-svg" id="refSvg"></svg>
+      </div>
+
+      <div class="ref-panel">
+        <div class="ref-title">Calibración de Escala</div>
+        <div class="ref-sub">PASO 1: Toca dos puntos en la foto que conozcas la distancia real</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:12px;font-family:var(--mono);font-size:10px;">
+          <div id="refA-status" style="color:var(--muted);">● Punto A: —</div>
+          <div id="refB-status" style="color:var(--muted);">● Punto B: —</div>
+        </div>
+
+        <div class="ref-sub">PASO 2: Introduce la distancia real entre esos dos puntos</div>
+        <div class="input-row">
+          <input class="gmd-input" type="number" id="refDist" placeholder="Ej: 880" min="1" max="50000">
+          <span class="unit-lbl">mm</span>
+        </div>
+
+        <div class="input-row" style="gap:6px;flex-wrap:wrap;">
+          <select class="gmd-input" id="refTipo" style="flex:1;min-width:140px;">
+            <option value="alto">Altura</option>
+            <option value="largo">Largo</option>
+            <option value="ancho">Ancho</option>
+            <option value="entre-barrenos">Distancia entre barrenos</option>
+            <option value="otro">Otra medida</option>
+          </select>
+        </div>
+
+        <button class="btn btn-p" style="width:100%;margin-top:8px;" onclick="calcularEscala()">
+          CALCULAR ESCALA ▶
+        </button>
+
+        <div class="ref-result" id="refResult" style="display:none;margin-top:12px;"></div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-g" onclick="goStep(1)">← FOTO</button>
+        <button class="btn btn-p" style="flex:1;" id="btnIrPuntos" disabled onclick="goStep(3)">MARCAR PUNTOS →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 3: PUNTOS DE FIJACIÓN ══ -->
+  <div class="screen" id="screen3">
+    <div class="pts-screen">
+      <div class="pts-photo-wrap">
+        <canvas id="canvasPts"></canvas>
+        <svg class="pts-svg" id="ptsSvg"></svg>
+      </div>
+      <div class="pts-bar">
+        <span class="pts-count" id="ptsCount">0 puntos marcados</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--muted);flex:1;">Toca la foto para marcar barrenos o refs</span>
+        <button class="btn btn-g" style="font-size:10px;padding:6px 12px;" onclick="goStep(4)">REPORTE →</button>
+      </div>
+      <div class="pts-list" id="ptsList">
+        <div class="empty-pts" id="ptsEmpty">Toca la foto para marcar los puntos de fijación, barrenos o referencias clave</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 4: REPORTE ══ -->
+  <div class="screen" id="screen4">
+    <div class="report-screen" id="reportContent">
+      <!-- generado dinámicamente -->
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- CV LOADING -->
+<div class="cv-loading" id="cvLoading">
+  <div class="cv-dot"></div>
+  <span>Cargando OpenCV.js — detección de aristas disponible en un momento...</span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// ESTADO GLOBAL
+// ══════════════════════════════════════════════
+const state = {
+  stream: null,
+  imgDataUrl: null,      // foto capturada
+  cvReady: false,
+  scale: null,           // mm por pixel
+  scaleInfo: null,
+  refPoints: [],         // [{x,y}] en canvas coords
+  fixPoints: [],         // [{x,y,label,nota,imgX,imgY}]
+  dims: {},              // dimensiones calculadas
+  currentStep: 0,
+};
+
+// Letras para puntos
+const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// ══════════════════════════════════════════════
+// OPENCV
+// ══════════════════════════════════════════════
+function onOpenCvReady() {
+  state.cvReady = true;
+  document.getElementById('cvStatus').textContent = 'CV LISTO ✓';
+  document.getElementById('cvStatus').style.color = 'var(--success)';
+  document.getElementById('cvLoading').style.display = 'none';
+  toast('OpenCV listo — detección de aristas activada', 'success');
+}
+function onOpenCvError() {
+  document.getElementById('cvStatus').textContent = 'CV NO DISPONIBLE';
+  document.getElementById('cvLoading').innerHTML = '⚠ OpenCV no cargó — modo básico activo';
+}
+
+// ══════════════════════════════════════════════
+// CÁMARA
+// ══════════════════════════════════════════════
+async function iniciarCamara() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1920 },
+        height: { ideal: 1080 },
+      }
+    });
+    state.stream = stream;
+    const video = document.getElementById('videoEl');
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      document.getElementById('camRes').textContent =
+        `${video.videoWidth}×${video.videoHeight}`;
+    };
+    document.getElementById('noCamMsg').style.display = 'none';
+    document.getElementById('videoEl').style.display = 'block';
+  } catch(e) {
+    console.warn('Sin cámara:', e);
+    document.getElementById('noCamMsg').style.display = 'flex';
+    document.getElementById('videoEl').style.display = 'none';
+    document.getElementById('camRes').textContent = 'SIN CÁMARA';
+  }
+}
+
+function detenerCamara() {
+  if(state.stream) {
+    state.stream.getTracks().forEach(t => t.stop());
+    state.stream = null;
+  }
+}
+
+// ══════════════════════════════════════════════
+// CAPTURAR FOTO
+// ══════════════════════════════════════════════
+function capturarFoto() {
+  const video = document.getElementById('videoEl');
+  if(!video.videoWidth) {
+    toast('Espera a que la cámara inicie', 'warn');
+    return;
+  }
+
+  // Flash visual
+  document.getElementById('captureBtn').classList.add('flash-anim');
+  setTimeout(() => document.getElementById('captureBtn').classList.remove('flash-anim'), 400);
+
+  // Dibujar frame en canvas oculto
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width  = video.videoWidth;
+  tmpCanvas.height = video.videoHeight;
+  tmpCanvas.getContext('2d').drawImage(video, 0, 0);
+  state.imgDataUrl = tmpCanvas.toDataURL('image/jpeg', 0.94);
+
+  toast('Foto capturada ✓', 'success');
+  detenerCamara();
+  procesarFoto();
+}
+
+function cargarDesdeArchivo(input) {
+  const file = input.files[0];
+  if(!file) return;
+
+  if(file.type.startsWith('video/')) {
+    toast('Video recibido — extrayendo frame...', '');
+    const url = URL.createObjectURL(file);
+    const tmpVideo = document.createElement('video');
+    tmpVideo.src = url;
+    tmpVideo.muted = true;
+    tmpVideo.onloadeddata = () => {
+      tmpVideo.currentTime = 1;
+    };
+    tmpVideo.onseeked = () => {
+      const c = document.createElement('canvas');
+      c.width = tmpVideo.videoWidth;
+      c.height = tmpVideo.videoHeight;
+      c.getContext('2d').drawImage(tmpVideo, 0, 0);
+      state.imgDataUrl = c.toDataURL('image/jpeg', 0.94);
+      URL.revokeObjectURL(url);
+      procesarFoto();
+    };
+    return;
+  }
+
+  // Imagen
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.imgDataUrl = e.target.result;
+    procesarFoto();
+  };
+  reader.readAsDataURL(file);
+}
+
+// ══════════════════════════════════════════════
+// PROCESAR FOTO (cargar + detectar aristas)
+// ══════════════════════════════════════════════
+function procesarFoto() {
+  if(!state.imgDataUrl) return;
+  goStep(1);
+
+  const img = new Image();
+  img.onload = () => {
+    // Mostrar la foto
+    const cFoto = document.getElementById('canvasFoto');
+    const cAristas = document.getElementById('canvasAristas');
+    const wrap = document.querySelector('.foto-wrap');
+
+    // Escalar para que quepa
+    const maxW = wrap.clientWidth;
+    const maxH = wrap.clientHeight;
+    const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
+    cFoto.width  = img.width  * ratio;
+    cFoto.height = img.height * ratio;
+    cFoto.getContext('2d').drawImage(img, 0, 0, cFoto.width, cFoto.height);
+
+    cAristas.width  = cFoto.width;
+    cAristas.height = cFoto.height;
+    cAristas.style.width  = cFoto.width  + 'px';
+    cAristas.style.height = cFoto.height + 'px';
+
+    document.getElementById('fotoInfo').textContent =
+      `Foto: ${img.width}×${img.height}px · ${state.cvReady ? 'Detectando aristas...' : 'OpenCV cargando...'}`;
+
+    // Guardar dimensiones
+    state._imgW = img.width;
+    state._imgH = img.height;
+    state._ratio = ratio;
+
+    // Preparar canvas de referencia y puntos con la misma imagen
+    prepararCanvasRef(img, ratio);
+    prepararCanvasPts(img, ratio);
+
+    // Detectar aristas si CV está listo
+    if(state.cvReady) {
+      setTimeout(() => detectarAristas(cFoto, cAristas), 200);
+    } else {
+      document.getElementById('fotoInfo').textContent =
+        `Foto cargada · ${img.width}×${img.height}px · OpenCV cargando, espera...`;
+      // Reintentar cuando CV esté listo
+      const check = setInterval(() => {
+        if(state.cvReady) {
+          clearInterval(check);
+          detectarAristas(cFoto, cAristas);
+        }
+      }, 500);
+    }
+  };
+  img.src = state.imgDataUrl;
+}
+
+// ══════════════════════════════════════════════
+// DETECCIÓN DE ARISTAS CON OPENCV
+// ══════════════════════════════════════════════
+function detectarAristas(cFoto, cAristas) {
+  try {
+    const ctx = cAristas.getContext('2d');
+    ctx.clearRect(0, 0, cAristas.width, cAristas.height);
+
+    // Leer imagen desde canvas
+    const src = cv.imread(cFoto);
+    const gris = new cv.Mat();
+    const blur = new cv.Mat();
+    const bordes = new cv.Mat();
+
+    // Preprocesar
+    cv.cvtColor(src, gris, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gris, blur, new cv.Size(3, 3), 0);
+
+    // Canny edge detection
+    cv.Canny(blur, bordes, 40, 120, 3, false);
+
+    // Detectar líneas con HoughLinesP
+    const lineas = new cv.Mat();
+    cv.HoughLinesP(
+      bordes, lineas,
+      1,                    // resolución rho
+      Math.PI / 180,        // resolución theta
+      Math.round(cFoto.width * 0.04), // threshold mínimo
+      Math.round(cFoto.width * 0.05), // longitud mínima
+      Math.round(cFoto.width * 0.02)  // gap máximo
+    );
+
+    // Dibujar las líneas detectadas
+    ctx.strokeStyle = 'rgba(0,195,199,0.7)';
+    ctx.lineWidth = 1.5;
+
+    const lineasFiltradas = [];
+    for(let i = 0; i < lineas.rows; i++) {
+      const [x1, y1, x2, y2] = [
+        lineas.data32S[i*4],
+        lineas.data32S[i*4+1],
+        lineas.data32S[i*4+2],
+        lineas.data32S[i*4+3]
+      ];
+      const len = Math.hypot(x2-x1, y2-y1);
+      lineasFiltradas.push({x1,y1,x2,y2,len});
+    }
+
+    // Ordenar por longitud y tomar las más largas
+    lineasFiltradas.sort((a,b) => b.len - a.len);
+    const top = lineasFiltradas.slice(0, Math.min(40, lineasFiltradas.length));
+
+    top.forEach(l => {
+      ctx.beginPath();
+      ctx.moveTo(l.x1, l.y1);
+      ctx.lineTo(l.x2, l.y2);
+      ctx.stroke();
+    });
+
+    // Estimar bounding box de las líneas dominantes
+    if(top.length > 3) {
+      const xs = top.flatMap(l => [l.x1, l.x2]);
+      const ys = top.flatMap(l => [l.y1, l.y2]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+      // Guardar para escala
+      state._bboxPx = {
+        w: maxX - minX,
+        h: maxY - minY,
+        x: minX, y: minY
+      };
+
+      // Dibujar bbox
+      ctx.strokeStyle = 'rgba(255,140,66,0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5,4]);
+      ctx.strokeRect(minX, minY, maxX-minX, maxY-minY);
+      ctx.setLineDash([]);
+
+      document.getElementById('fotoInfo').textContent =
+        `Aristas detectadas: ${top.length} · Bbox estimado: ${Math.round(maxX-minX)}×${Math.round(maxY-minY)} px`;
+    } else {
+      document.getElementById('fotoInfo').textContent =
+        `${top.length} aristas detectadas · Intenta con mejor iluminación o ángulo`;
+    }
+
+    // Liberar memoria OpenCV
+    src.delete(); gris.delete(); blur.delete();
+    bordes.delete(); lineas.delete();
+
+  } catch(e) {
+    console.error('Error OpenCV:', e);
+    document.getElementById('fotoInfo').textContent =
+      'Error en detección. Continúa manualmente con la calibración de escala.';
+  }
+}
+
+// ══════════════════════════════════════════════
+// CANVAS DE REFERENCIA (paso 2)
+// ══════════════════════════════════════════════
+function prepararCanvasRef(img, ratio) {
+  state.refPoints = [];
+  document.getElementById('refA-status').textContent = '● Punto A: —';
+  document.getElementById('refA-status').style.color = 'var(--muted)';
+  document.getElementById('refB-status').textContent = '● Punto B: —';
+  document.getElementById('refB-status').style.color = 'var(--muted)';
+  document.getElementById('refResult').style.display = 'none';
+  document.getElementById('btnIrPuntos').disabled = true;
+
+  const c = document.getElementById('canvasRef');
+  const maxW = Math.min(window.innerWidth - 32, 600);
+  const r2 = Math.min(maxW / img.width, 1) * ratio / ratio;
+  const rFinal = maxW / img.width;
+  c.width  = img.width  * rFinal;
+  c.height = img.height * rFinal;
+  c._ratio = rFinal;
+  c._img = img;
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+
+  // Tap handler
+  function handleTap(e) {
+    e.preventDefault();
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width  / rect.width;
+    const scaleY = c.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top)  * scaleY;
+
+    if(state.refPoints.length < 2) {
+      state.refPoints.push({x, y});
+      actualizarRefSvg(c);
+      const ids = ['refA-status','refB-status'];
+      const labels = ['A','B'];
+      const idx = state.refPoints.length - 1;
+      document.getElementById(ids[idx]).textContent =
+        `● Punto ${labels[idx]}: (${Math.round(x)}, ${Math.round(y)})`;
+      document.getElementById(ids[idx]).style.color = 'var(--teal)';
+
+      if(state.refPoints.length === 2) {
+        toast('Dos puntos marcados. Introduce la distancia real.', 'success');
+      }
+    } else {
+      toast('Ya tienes 2 puntos. Calcula o resetea.', 'warn');
+    }
+  }
+  c.removeEventListener('click', c._tapHandler);
+  c.removeEventListener('touchstart', c._tapHandler);
+  c._tapHandler = handleTap;
+  c.addEventListener('click', handleTap);
+  c.addEventListener('touchstart', handleTap, {passive:false});
+}
+
+function actualizarRefSvg(c) {
+  const svg = document.getElementById('refSvg');
+  const rect = c.getBoundingClientRect();
+  svg.setAttribute('viewBox', `0 0 ${c.width} ${c.height}`);
+  let html = '';
+  state.refPoints.forEach((p, i) => {
+    const color = i === 0 ? '#ff8c42' : '#00C3C7';
+    const label = i === 0 ? 'A' : 'B';
+    html += `<circle cx="${p.x}" cy="${p.y}" r="6" fill="${color}" opacity=".85"/>`;
+    html += `<text x="${p.x+10}" y="${p.y-6}" fill="${color}" font-size="11" font-family="Share Tech Mono">${label}</text>`;
+  });
+  if(state.refPoints.length === 2) {
+    const [a, b] = state.refPoints;
+    html += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="rgba(255,255,255,.4)" stroke-width="1" stroke-dasharray="5 3"/>`;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const distPx = Math.round(Math.hypot(dx, dy));
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    html += `<rect x="${mx-28}" y="${my-16}" width="56" height="18" rx="2" fill="rgba(6,11,11,.8)"/>`;
+    html += `<text x="${mx}" y="${my-3}" fill="var(--teal)" font-size="9" font-family="Share Tech Mono" text-anchor="middle">${distPx} px</text>`;
+  }
+  svg.innerHTML = html;
+}
+
+function calcularEscala() {
+  if(state.refPoints.length < 2) {
+    toast('Marca 2 puntos en la foto primero', 'warn');
+    return;
+  }
+  const dist = parseFloat(document.getElementById('refDist').value);
+  if(!dist || dist <= 0) {
+    toast('Introduce la distancia real en mm', 'warn');
+    return;
+  }
+  const [a, b] = state.refPoints;
+  const distPx = Math.hypot(b.x - a.x, b.y - a.y);
+  const scale = dist / distPx; // mm/px en el canvas de referencia
+
+  // Ajustar al canvas original
+  const cRef = document.getElementById('canvasRef');
+  const cFoto = document.getElementById('canvasFoto');
+  const ratioAdj = cFoto.width / cRef.width;
+  state.scale = scale / ratioAdj; // mm/px en la foto original
+  state.scaleInfo = {
+    pxRef: Math.round(distPx),
+    distMm: dist,
+    tipo: document.getElementById('refTipo').value,
+    mmPerPx: state.scale,
+  };
+
+  // Calcular dimensiones del bbox si existe
+  let dimsHtml = '';
+  if(state._bboxPx) {
+    const largoMm = Math.round(state._bboxPx.w / ratioAdj * state.scale);
+    const altoMm  = Math.round(state._bboxPx.h / ratioAdj * state.scale);
+    state.dims = { largo: largoMm, alto: altoMm };
+    dimsHtml = `\nBULTO ESTIMADO:\n  Largo: ${largoMm} mm\n  Alto:  ${altoMm} mm`;
+  }
+
+  const html = `ESCALA CALCULADA:
+━━━━━━━━━━━━━━━━━━━━━━━━
+Distancia en foto:  ${Math.round(distPx)} px
+Distancia real:     ${dist} mm
+Factor de escala:   ${state.scale.toFixed(4)} mm/px
+Ref. introducida:   ${document.getElementById('refTipo').options[document.getElementById('refTipo').selectedIndex].text}${dimsHtml}
+━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Escala lista — continúa a puntos de fijación`;
+
+  const res = document.getElementById('refResult');
+  res.textContent = html;
+  res.style.display = 'block';
+  document.getElementById('btnIrPuntos').disabled = false;
+  toast('Escala calculada ✓', 'success');
+}
+
+// ══════════════════════════════════════════════
+// CANVAS DE PUNTOS (paso 3)
+// ══════════════════════════════════════════════
+function prepararCanvasPts(img, ratio) {
+  state.fixPoints = [];
+  renderPtsList();
+
+  const c = document.getElementById('canvasPts');
+  const maxW = Math.min(window.innerWidth, 800);
+  const rFinal = Math.min(maxW / img.width, 0.9);
+  c.width  = img.width  * rFinal;
+  c.height = img.height * rFinal;
+  c._ratio = rFinal;
+  c._img = img;
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+
+  function handleTap(e) {
+    e.preventDefault();
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width  / rect.width;
+    const scaleY = c.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top)  * scaleY;
+
+    // Calcular coordenadas reales si hay escala
+    let xMm = '—', yMm = '—';
+    if(state.scale) {
+      // Referencia desde esquina superior izquierda del bbox
+      const bx = state._bboxPx ? state._bboxPx.x * c._ratio : 0;
+      const by = state._bboxPx ? state._bboxPx.y * c._ratio : 0;
+      xMm = Math.round((x - bx) * (state.scale / (c._ratio)));
+      yMm = Math.round((y - by) * (state.scale / (c._ratio)));
+    }
+
+    const letra = LETRAS[state.fixPoints.length % 26];
+    const nota = prompt(`Punto ${letra} — ¿Qué es este punto?\n(ej: M12×1.75, Barreno fijación, Eje salida, Sup. referencia)`, `Punto ${letra}`);
+    if(nota === null) return; // canceló
+
+    state.fixPoints.push({
+      x, y,
+      label: letra,
+      nota: nota || `Punto ${letra}`,
+      xMm, yMm,
+    });
+
+    actualizarPtsSvg(c);
+    renderPtsList();
+    document.getElementById('ptsCount').textContent =
+      `${state.fixPoints.length} punto${state.fixPoints.length !== 1 ? 's' : ''} marcado${state.fixPoints.length !== 1 ? 's' : ''}`;
+    toast(`Punto ${letra} marcado`, 'success');
+  }
+
+  c.removeEventListener('click', c._tapHandler);
+  c.removeEventListener('touchstart', c._tapHandler);
+  c._tapHandler = handleTap;
+  c.addEventListener('click', handleTap);
+  c.addEventListener('touchstart', handleTap, {passive:false});
+}
+
+function actualizarPtsSvg(c) {
+  const svg = document.getElementById('ptsSvg');
+  svg.setAttribute('viewBox', `0 0 ${c.width} ${c.height}`);
+  let html = '';
+
+  // Líneas entre puntos consecutivos
+  for(let i = 1; i < state.fixPoints.length; i++) {
+    const a = state.fixPoints[i-1], b = state.fixPoints[i];
+    const distPx = Math.hypot(b.x - a.x, b.y - a.y);
+    let distLabel = '';
+    if(state.scale) {
+      const distMm = Math.round(distPx * state.scale / c._ratio);
+      distLabel = `${distMm}mm`;
+    }
+    html += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="rgba(255,140,66,.45)" stroke-width="1" stroke-dasharray="5 3"/>`;
+    if(distLabel) {
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      html += `<rect x="${mx-20}" y="${my-13}" width="40" height="15" rx="2" fill="rgba(6,11,11,.8)"/>`;
+      html += `<text x="${mx}" y="${my-3}" fill="var(--warn)" font-size="8" font-family="Share Tech Mono" text-anchor="middle">${distLabel}</text>`;
+    }
+  }
+
+  // Puntos
+  state.fixPoints.forEach(p => {
+    html += `<circle cx="${p.x}" cy="${p.y}" r="7" fill="rgba(255,140,66,.2)" stroke="var(--warn)" stroke-width="1.5"/>`;
+    html += `<text x="${p.x}" y="${p.y+4}" fill="var(--warn)" font-size="9" font-family="Share Tech Mono" text-anchor="middle" font-weight="700">${p.label}</text>`;
+  });
+
+  svg.innerHTML = html;
+}
+
+function renderPtsList() {
+  const list = document.getElementById('ptsList');
+  const empty = document.getElementById('ptsEmpty');
+  if(state.fixPoints.length === 0) {
+    list.innerHTML = '';
+    list.appendChild(empty);
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  let html = '';
+  state.fixPoints.forEach((p, i) => {
+    const coordStr = state.scale
+      ? `X:${p.xMm}mm  Y:${p.yMm}mm`
+      : `píxeles (${Math.round(p.x)}, ${Math.round(p.y)})`;
+    html += `<div class="pt-row">
+      <div class="pt-letter">${p.label}</div>
+      <div class="pt-info">
+        <strong>${p.nota}</strong><br>
+        <small>${coordStr}</small>
+      </div>
+      <button class="pt-del" onclick="eliminarPunto(${i})">✕</button>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+function eliminarPunto(idx) {
+  state.fixPoints.splice(idx, 1);
+  // Re-etiquetar
+  state.fixPoints.forEach((p, i) => p.label = LETRAS[i]);
+  const c = document.getElementById('canvasPts');
+  actualizarPtsSvg(c);
+  renderPtsList();
+  document.getElementById('ptsCount').textContent =
+    `${state.fixPoints.length} puntos marcados`;
+}
+
+// ══════════════════════════════════════════════
+// GENERAR REPORTE
+// ══════════════════════════════════════════════
+function generarReporte() {
+  const fecha = new Date().toLocaleDateString('es-MX', {
+    day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
+  });
+  const proyId = 'GMD-FS-' + String(Math.floor(Math.random()*9000)+1000);
+
+  // Tabla de distancias entre puntos
+  let tablaHtml = '';
+  if(state.fixPoints.length >= 2) {
+    for(let i = 0; i < state.fixPoints.length; i++) {
+      for(let j = i+1; j < state.fixPoints.length; j++) {
+        const a = state.fixPoints[i], b = state.fixPoints[j];
+        const distPx = Math.hypot(b.x - a.x, b.y - a.y);
+        const c = document.getElementById('canvasPts');
+        const distMm = state.scale
+          ? Math.round(distPx * state.scale / c._ratio)
+          : '—';
+        tablaHtml += `<tr>
+          <td>${a.label} → ${b.label}</td>
+          <td>${a.nota}</td>
+          <td>${b.nota}</td>
+          <td>${distMm !== '—' ? distMm + ' mm' : 'Sin escala'}</td>
+        </tr>`;
+      }
+    }
+  }
+
+  // Foto con puntos para el reporte
+  let fotoReporteUrl = '';
+  try {
+    const cPts = document.getElementById('canvasPts');
+    if(cPts.width > 0) {
+      const tmp = document.createElement('canvas');
+      tmp.width = cPts.width; tmp.height = cPts.height;
+      const ctx2 = tmp.getContext('2d');
+      ctx2.drawImage(cPts, 0, 0);
+      // Dibujar puntos encima
+      state.fixPoints.forEach(p => {
+        ctx2.beginPath();
+        ctx2.arc(p.x, p.y, 8, 0, Math.PI*2);
+        ctx2.fillStyle = 'rgba(255,140,66,.3)';
+        ctx2.fill();
+        ctx2.strokeStyle = '#ff8c42';
+        ctx2.lineWidth = 2;
+        ctx2.stroke();
+        ctx2.fillStyle = '#ff8c42';
+        ctx2.font = 'bold 11px Share Tech Mono';
+        ctx2.textAlign = 'center';
+        ctx2.fillText(p.label, p.x, p.y+4);
+      });
+      fotoReporteUrl = tmp.toDataURL('image/jpeg', 0.85);
+    }
+  } catch(e) {}
+
+  const escalaHtml = state.scaleInfo
+    ? `<tr><td>Factor escala</td><td>${state.scaleInfo.mmPerPx.toFixed(4)} mm/px</td></tr>
+       <tr><td>Referencia usada</td><td>${state.scaleInfo.distMm} mm (${state.scaleInfo.tipo})</td></tr>`
+    : '<tr><td colspan="2" style="color:var(--muted)">Sin calibración de escala</td></tr>';
+
+  const dimsHtml = state.dims.largo
+    ? `<div class="rpt-dims-grid">
+        <div class="rpt-dim-card"><div class="rpt-dim-val">${state.dims.largo}</div><div class="rpt-dim-lbl">LARGO (mm)</div></div>
+        <div class="rpt-dim-card"><div class="rpt-dim-val">${state.dims.alto}</div><div class="rpt-dim-lbl">ALTO (mm)</div></div>
+       </div>`
+    : '<p style="font-family:var(--mono);font-size:10px;color:var(--muted);">Calibra la escala para obtener dimensiones del bulto.</p>';
+
+  const puntosHtml = state.fixPoints.length > 0
+    ? state.fixPoints.map(p => {
+        const coordStr = state.scale ? `X:${p.xMm}mm  Y:${p.yMm}mm` : 'Sin escala';
+        return `<tr><td>${p.label}</td><td>${p.nota}</td><td style="font-family:var(--mono);font-size:9px;">${coordStr}</td></tr>`;
+      }).join('')
+    : '<tr><td colspan="3" style="color:var(--muted);">Sin puntos marcados</td></tr>';
+
+  const content = document.getElementById('reportContent');
+  content.innerHTML = `
+    <div class="rpt-header">
+      <div class="rpt-title">GMD FIELD SURVEY — LEVANTAMIENTO</div>
+      <div class="rpt-sub">${proyId} · ${fecha} · GMD Mechanical Design, SLP, MX</div>
+    </div>
+
+    ${fotoReporteUrl ? `
+    <div class="rpt-section">
+      <div class="rpt-sec-title">FOTO ANOTADA</div>
+      <img src="${fotoReporteUrl}" class="rpt-photo-preview" alt="foto levantamiento"/>
+    </div>` : ''}
+
+    <div class="rpt-section">
+      <div class="rpt-sec-title">BULTO 3D ESTIMADO</div>
+      ${dimsHtml}
+    </div>
+
+    <div class="rpt-section">
+      <div class="rpt-sec-title">CALIBRACIÓN DE ESCALA</div>
+      <table class="rpt-table">
+        <tbody>${escalaHtml}</tbody>
+      </table>
+    </div>
+
+    <div class="rpt-section">
+      <div class="rpt-sec-title">PUNTOS DE FIJACIÓN (${state.fixPoints.length})</div>
+      <table class="rpt-table">
+        <thead><tr><th>PTO</th><th>DESCRIPCIÓN</th><th>COORDS</th></tr></thead>
+        <tbody>${puntosHtml}</tbody>
+      </table>
+    </div>
+
+    ${tablaHtml ? `
+    <div class="rpt-section">
+      <div class="rpt-sec-title">DISTANCIAS ENTRE PUNTOS</div>
+      <table class="rpt-table">
+        <thead><tr><th>ENTRE</th><th>DESDE</th><th>HASTA</th><th>DISTANCIA</th></tr></thead>
+        <tbody>${tablaHtml}</tbody>
+      </table>
+    </div>` : ''}
+
+    <div class="rpt-section">
+      <div class="rpt-sec-title">EXPORTAR</div>
+      <div class="rpt-actions">
+        <button class="btn btn-p" onclick="exportarCSV()">📊 CSV COTAS</button>
+        <button class="btn btn-g" onclick="exportarJSON()">📦 JSON</button>
+        <button class="btn btn-g" onclick="window.print()">🖨 IMPRIMIR PDF</button>
+      </div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-align:center;padding:8px;">
+      GMD Field Survey · gmdmechanicaldesign.com · San Luis Potosí, MX
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════
+// EXPORTAR CSV
+// ══════════════════════════════════════════════
+function exportarCSV() {
+  const rows = ['Punto,Descripcion,X_mm,Y_mm'];
+  state.fixPoints.forEach(p => {
+    rows.push(`${p.label},"${p.nota}",${p.xMm},${p.yMm}`);
+  });
+
+  // Distancias
+  rows.push('');
+  rows.push('Desde,Hasta,Distancia_mm');
+  const c = document.getElementById('canvasPts');
+  for(let i = 0; i < state.fixPoints.length; i++) {
+    for(let j = i+1; j < state.fixPoints.length; j++) {
+      const a = state.fixPoints[i], b = state.fixPoints[j];
+      const distPx = Math.hypot(b.x - a.x, b.y - a.y);
+      const distMm = state.scale ? Math.round(distPx * state.scale / c._ratio) : '';
+      rows.push(`${a.label},${b.label},${distMm}`);
+    }
+  }
+
+  const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'gmd_levantamiento.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exportado ✓', 'success');
+}
+
+function exportarJSON() {
+  const data = {
+    generado: new Date().toISOString(),
+    app: 'GMD Field Survey v1.0',
+    escala: state.scaleInfo,
+    dims: state.dims,
+    puntos: state.fixPoints.map(p => ({
+      label: p.label, nota: p.nota, x_mm: p.xMm, y_mm: p.yMm
+    }))
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'gmd_levantamiento.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('JSON exportado ✓', 'success');
+}
+
+// ══════════════════════════════════════════════
+// NAVEGACIÓN DE PASOS
+// ══════════════════════════════════════════════
+function goStep(n) {
+  if(n > 0 && !state.imgDataUrl) {
+    toast('Primero captura o carga una foto', 'warn');
+    return;
+  }
+  if(n === 4) generarReporte();
+
+  document.querySelectorAll('.screen').forEach((s,i) => {
+    s.classList.toggle('active', i === n);
+  });
+  document.querySelectorAll('.step-btn').forEach((b,i) => {
+    b.classList.remove('active','done');
+    if(i === n) b.classList.add('active');
+    if(i < n) b.classList.add('done');
+  });
+  state.currentStep = n;
+
+  if(n === 0 && !state.stream) iniciarCamara();
+  if(n > 0) detenerCamara();
+}
+
+function reiniciar() {
+  if(!confirm('¿Iniciar nuevo levantamiento? Se perderá el actual.')) return;
+  state.imgDataUrl = null;
+  state.scale = null;
+  state.scaleInfo = null;
+  state.refPoints = [];
+  state.fixPoints = [];
+  state.dims = {};
+  state._bboxPx = null;
+  goStep(0);
+  iniciarCamara();
+}
+
+// ══════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+window.addEventListener('load', () => {
+  iniciarCamara();
+});
+
+window.addEventListener('beforeunload', () => {
+  detenerCamara();
+});
+</script>
+</body>
+</html>
